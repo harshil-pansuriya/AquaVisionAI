@@ -1,0 +1,21 @@
+train: C:/Harshil/Data Science/End to end  Project/AquaVisionAI/data/processed/UW_enhanced/train/images
+val: C:/Harshil/Data Science/End to end  Project/AquaVisionAI/data/processed/UW_enhanced/valid/images
+test: C:/Harshil/Data Science/End to end  Project/AquaVisionAI/data/processed/UW_enhanced/test/images
+
+nc: 12
+names:
+  [
+    "Mask",
+    "can",
+    "cellphone",
+    "electronics",
+    "gbottle",
+    "glove",
+    "misc",
+    "net",
+    "pbag",
+    "pbottle",
+    "plastic",
+    "tire",
+  ]
+cls_weights: [1.0, 4.0, 1.0, 3.0, 2.0, 1.0, 5.0, 1.0, 1.0, 2.0, 5.0, 4.0]

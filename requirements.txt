@@ -1,0 +1,12 @@
+tensorflow==2.18.0
+opencv-python==4.7.0.72
+numpy
+pandas
+
+
+matplotlib
+scikit-learn
+
+ultralytics
+
+streamlit
