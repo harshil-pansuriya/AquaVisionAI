@@ -1,27 +1,19 @@
 import sqlite3
 import os
-import json
-import cv2
-import numpy as np
-import tensorflow as tf
-from ultralytics import YOLO
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-from sklearn.preprocessing import MultiLabelBinarizer
-import psutil
 import random
+import json
+from config.paths import DB_PATH, PROCESSED_DIR, SPECIES_MODEL_PATH, CORAL_MODEL_PATH, POLLUTION_MODEL_PATH
+from src.utils import parse_labels, predict_tf, predict_yolo, compute_metrics, load_model
 
-# Paths and constants
-BASE_DIR = r"C:\Harshil\Data Science\End to end  Project\AquaVisionAI"
-DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
+# Constants
 CLASS_MAP = {0: "Mask", 1: "can", 2: "cellphone", 3: "electronics", 4: "gbottle", 5: "glove",
              6: "misc", 7: "net", 8: "pbag", 9: "pbottle", 10: "plastic", 11: "tire"}
-SPECIES_LIST = sorted(os.listdir(os.path.join(DATA_DIR, "species_enhanced")))
+SPECIES_LIST = sorted(os.listdir(PROCESSED_DIR["sea_animals"]))
 CORAL_CLASSES = ["healthy_corals", "bleached_corals"]
-DEFAULT_BATCH_SIZE = 4
+BATCH_SIZE = 4
 
 # Database setup
-conn = sqlite3.connect('marine_monitoring.db')
+conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 cursor.executescript('''
     CREATE TABLE IF NOT EXISTS marine_images (
@@ -46,142 +38,96 @@ cursor.executescript('''
     );
 ''')
 
-# Utility functions
-def parse_labels(label_path):
-    if not os.path.exists(label_path):
-        return "N/A", (-1,)
-    with open(label_path, 'r') as f:
-        lines = [line.strip().split() for line in f if line.strip()]
-    if not lines:
-        return "N/A", (-1,)
-    classes = tuple(int(line[0]) for line in lines)
-    pollution = ", ".join({CLASS_MAP[c] for c in classes})
-    return pollution, classes
-
-def preprocess_tf(paths, size=(224, 224)):
-    return np.array([cv2.cvtColor(cv2.resize(cv2.imread(p), size), cv2.COLOR_BGR2RGB) / 255.0 for p in paths])
-
-def get_dynamic_batch_size(img_size=(640, 640), max_memory_percent=0.5):
-    mem = psutil.virtual_memory()
-    available_mem = mem.available * max_memory_percent
-    img_mem = img_size[0] * img_size[1] * 3 * 4
-    batch_size = max(1, int(available_mem / img_mem / 2))
-    return min(DEFAULT_BATCH_SIZE, batch_size)
-
-# Model loading
-def load_model(model_path, is_yolo=False):
-    return YOLO(model_path) if is_yolo else tf.keras.models.load_model(model_path, compile=False)
-
-coral_model = load_model(os.path.join(MODELS_DIR, "coral_health_final_model.h5"))
-species_model = load_model(os.path.join(MODELS_DIR, "marine_species_model_90_perfect.h5"))
-pollution_model = load_model(os.path.join(MODELS_DIR, "pollution_detection.pt"), is_yolo=True)
-
-# Prediction functions
-def predict_tf(model, paths, is_binary=False, batch_size=DEFAULT_BATCH_SIZE):
-    preds = []
-    for i in range(0, len(paths), batch_size):
-        batch = paths[i:i + batch_size]
-        batch_preds = model.predict(preprocess_tf(batch), verbose=0, batch_size=len(batch))
-        preds.extend([0 if p < 0.5 else 1 for p in batch_preds] if is_binary else [np.argmax(p) for p in batch_preds])
-    return preds
-
-def predict_yolo(model, paths, batch_size=DEFAULT_BATCH_SIZE):
-    preds = []
-    for i in range(0, len(paths), batch_size):
-        batch = paths[i:i + batch_size]
-        results = model.predict(batch, imgsz=640, conf=0.5, iou=0.5, verbose=False)
-        for result in results:
-            labels = tuple(int(cls) for cls in result.boxes.cls) if result.boxes else (-1,)
-            preds.append(labels)
-    return preds
-
-# Evaluate and store
-def evaluate_and_store(model_name, split, paths, true_labels, predict_fn, classes, is_yolo=False, batch_size=DEFAULT_BATCH_SIZE):
-    if is_yolo:
-        data_yaml_path = r"C:\Harshil\Data Science\End to end  Project\AquaVisionAI\config\detection.yaml"
-        val_results = pollution_model.val(data=data_yaml_path, imgsz=640, batch=batch_size, verbose=True, split="test")
-        map50 = val_results.box.map50
-        true_per_image = true_labels
-        pred_per_image = predict_yolo(pollution_model, paths, batch_size)
-    else:
-        pred_flat = predict_fn(paths, batch_size)
-        true_flat = list(true_labels)
-        map50 = None
-        true_per_image = [(lbl,) for lbl in true_flat]
-        pred_per_image = [(lbl,) for lbl in pred_flat]
-
-    # Multi-label binarization
-    mlb = MultiLabelBinarizer(classes=range(len(classes)))
-    true_bin = mlb.fit_transform(true_per_image)
-    pred_bin = mlb.transform(pred_per_image)
-    
-    # Compute metrics with weighted average
-    accuracy = accuracy_score(true_bin, pred_bin)
-    precision = precision_score(true_bin, pred_bin, average='weighted', zero_division=0)
-    recall = recall_score(true_bin, pred_bin, average='weighted', zero_division=0)
-    f1 = f1_score(true_bin, pred_bin, average='weighted', zero_division=0)
-    true_flat = [lbl[0] if lbl else -1 for lbl in true_per_image]
-    pred_flat = [lbl[0] if lbl else -1 for lbl in pred_per_image]
-    cm = confusion_matrix(true_flat, pred_flat, labels=range(len(classes)))
-    
-    scores = [accuracy, precision, recall, f1]
-
-    # Store in database
-    cursor.execute('INSERT INTO model_performance (model_name, split, confusion_matrix, accuracy, precision, recall, f1_score, map50) '
-                   'VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
-                   (model_name, split, json.dumps(cm.tolist()), *scores, map50))
-    conn.commit()
-    print(f"Stored {model_name} on {split}: Accuracy={scores[0]:.4f}, mAP50={map50 if map50 is not None else 'N/A'}")
-
-# Populate marine_images
 def populate_images():
-    for root, _, files in os.walk(DATA_DIR):
-        for file in files:
-            if file.lower().endswith(('.jpg', '.png')):
-                file_path = os.path.join(root, file)
-                parts = os.path.relpath(file_path, DATA_DIR).split(os.sep)
-                dataset = split = species = coral = pollution = "N/A"
-                
-                if parts[0] == "species_enhanced" and len(parts) > 1:
-                    dataset, species = "sea_animals", parts[1]
-                elif parts[0] == "coral_enhanced" and len(parts) > 2:
-                    dataset, split, coral = "coral_reef", parts[1], "healthy" if parts[2] == "healthy_corals" else "bleached"
-                elif parts[0] == "UW_enhanced" and len(parts) > 2 and parts[2] == "images":
-                    dataset, split = "underwater_garbage", parts[1]
-                    label_path = file_path.replace("images", "labels").replace(".jpg", ".txt").replace(".png", ".txt")
-                    pollution, _ = parse_labels(label_path)
-                
-                if dataset != "N/A":
-                    cursor.execute('INSERT INTO marine_images (file_path, source_dataset, split, species, coral_health, pollution) '
-                                   'VALUES (?, ?, ?, ?, ?, ?)', (file_path, dataset, split, species, coral, pollution))
+    """Populate the marine_images table with data from processed directories."""
+    for dataset, base_dir in PROCESSED_DIR.items():
+        for root, _, files in os.walk(base_dir):
+            for file in files:
+                if file.lower().endswith(('.jpg', '.png')):
+                    file_path = os.path.join(root, file)
+                    parts = os.path.relpath(file_path, base_dir).split(os.sep)
+                    dataset_name = split = species = coral = pollution = "N/A"
+                    
+                    if dataset == "sea_animals" and len(parts) > 0:
+                        dataset_name, species = "sea_animals", parts[0]
+                    elif dataset == "coral_reef" and len(parts) > 1:
+                        dataset_name, split, coral = "coral_reef", parts[0], "healthy" if parts[1] == "healthy_corals" else "bleached"
+                    elif dataset == "underwater_garbage" and len(parts) > 1 and parts[1] == "images":
+                        dataset_name, split = "underwater_garbage", parts[0]
+                        label_path = file_path.replace("images", "labels").replace(".jpg", ".txt").replace(".png", ".txt")
+                        pollution_classes = parse_labels(label_path)
+                        pollution = ", ".join([CLASS_MAP.get(c, "Unknown") for c in pollution_classes if c != -1]) or "N/A"
+                    
+                    if dataset_name != "N/A":
+                        cursor.execute('INSERT INTO marine_images (file_path, source_dataset, split, species, coral_health, pollution) '
+                                       'VALUES (?, ?, ?, ?, ?, ?)', (file_path, dataset_name, split, species, coral, pollution))
 
-# Main execution
+def evaluate_and_store(model_name, split, paths, true_labels, predict_fn, classes, is_yolo=False, model=None):
+    """Evaluate a model and store results in the database."""
+    print(f"Evaluating {model_name} on {split} split with {len(paths)} samples...")
+    if is_yolo:
+        val_results = model.val(data="config/detection.yaml", imgsz=640, batch=BATCH_SIZE, verbose=False, split="test")
+        map50 = val_results.box.map50
+        pred_labels = predict_yolo(model, paths, BATCH_SIZE)
+    else:
+        pred_labels = predict_fn(paths, BATCH_SIZE)
+        map50 = None
+
+    true_labels = [(lbl,) if not isinstance(lbl, tuple) else lbl for lbl in true_labels]
+    metrics = compute_metrics(true_labels, pred_labels, classes)
+    cursor.execute('INSERT INTO model_performance (model_name, split, confusion_matrix, accuracy, precision, recall, f1_score, map50) '
+                   'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                   (model_name, split, json.dumps(metrics["confusion_matrix"]), metrics["accuracy"], metrics["precision"],
+                    metrics["recall"], metrics["f1"], map50))
+    conn.commit()
+    print(f"Performance saved for {model_name}: Accuracy={metrics['accuracy']:.4f}, mAP50={map50 if map50 is not None else 'N/A'}")
+
 if __name__ == "__main__":
+    print("Populating database with image metadata...")
     populate_images()
     conn.commit()
-    # Fetch data
-    cursor.execute("SELECT file_path, source_dataset, split, species, coral_health FROM marine_images")
-    rows = cursor.fetchall()
-    # Randomly sample 300-400 species images
-    species_data_all = [(r[0], SPECIES_LIST.index(r[3])) for r in rows if r[1] == "sea_animals" and r[3] != "N/A"]
-    species_data = random.sample(species_data_all, min(400, len(species_data_all)))  # Sample 400 or all if less
-    print(f"Sampled {len(species_data)} species images")
+    print("Database population completed.")
 
-    coral_data = [(r[0], 0 if r[4] == "healthy" else 1) for r in rows if r[1] == "coral_reef" and r[2] == "Testing"]
-    pollution_data = [(r[0], parse_labels(r[0].replace("images", "labels").replace(".jpg", ".txt").replace(".png", ".txt"))[1])
-                      for r in rows if r[1] == "underwater_garbage" and r[2] == "test"]
+    # Species: Random 400 samples across all 23 classes
+    all_species_images = []
+    for species in SPECIES_LIST:
+        species_dir = os.path.join(PROCESSED_DIR["sea_animals"], species)
+        images = [os.path.join(species_dir, f) for f in os.listdir(species_dir) if f.lower().endswith(('.jpg', '.png'))]
+        all_species_images.extend([(img, SPECIES_LIST.index(species)) for img in images])
+    species_data = random.sample(all_species_images, min(400, len(all_species_images)))
+    print(f"Sampled {len(species_data)} species images loaded.")
 
-    # Dynamic batch size
-    batch_size = get_dynamic_batch_size(img_size=(640, 640))
+    # Coral: Test split only
+    cursor.execute("SELECT file_path, coral_health FROM marine_images WHERE source_dataset = 'coral_reef' AND split = 'Testing'")
+    coral_rows = cursor.fetchall()
+    coral_data = [(row[0], 0 if row[1] == "healthy" else 1) for row in coral_rows]
+    print(f"Loaded {len(coral_data)} coral test images.")
+
+    # Pollution: Test split only
+    cursor.execute("SELECT file_path FROM marine_images WHERE source_dataset = 'underwater_garbage' AND split = 'test'")
+    pollution_rows = cursor.fetchall()
+    pollution_data = [(row[0], parse_labels(row[0].replace("images", "labels").replace(".jpg", ".txt").replace(".png", ".txt")))
+                      for row in pollution_rows]
+    print(f"Loaded {len(pollution_data)} pollution test images.")
+
+    # Load models
+    print("Loading models...")
+    species_model = load_model(SPECIES_MODEL_PATH)
+    print("Species model loaded.")
+    coral_model = load_model(CORAL_MODEL_PATH)
+    print("Coral model loaded.")
+    pollution_model = load_model(POLLUTION_MODEL_PATH, is_yolo=True)
+    print("Pollution model loaded.")
 
     # Evaluate models
-    for name, split, data, fn, classes, is_yolo in [
-        ("marine_species", "sample", species_data, lambda p, b: predict_tf(species_model, p, batch_size=b), SPECIES_LIST, False),
-        ("coral_reef", "Testing", coral_data, lambda p, b: predict_tf(coral_model, p, True, batch_size=b), CORAL_CLASSES, False),
-        ("pollution_detection", "test", pollution_data, None, list(CLASS_MAP.keys()) + [-1], True)
+    for name, split, data, fn, classes, is_yolo, model in [
+        ("marine_species", "random_400", species_data, lambda p, b: predict_tf(species_model, p, batch_size=b), SPECIES_LIST, False, species_model),
+        ("coral_reef", "test", coral_data, lambda p, b: predict_tf(coral_model, p, True, batch_size=b), CORAL_CLASSES, False, coral_model),
+        ("pollution_detection", "test", pollution_data, None, list(CLASS_MAP.keys()) + [-1], True, pollution_model)
     ]:
         if data:
             paths, true = zip(*data)
-            evaluate_and_store(name, split, paths, true, fn, classes, is_yolo, batch_size)
+            evaluate_and_store(name, split, paths, true, fn, classes, is_yolo, model)
 
     conn.close()
+    print("Database connection closed.")

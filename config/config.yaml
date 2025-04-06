@@ -1,0 +1,18 @@
+# config.yaml
+base_dir: "C:/Harshil/Data Science/End to end  Project/AquaVisionAI"
+data:
+  raw:
+    underwater_garbage: "data/raw/Underwater_garbage"
+    coral_reef: "data/raw/coral-classification"
+    sea_animals: "data/raw/sea-animals"
+  processed:
+    underwater_garbage: "data/processed/UW_enhanced"
+    coral_reef: "data/processed/coral_enhanced"
+    sea_animals: "data/processed/species_enhanced"
+models:
+  dir: "models"
+  species: "marine_species_model_90_perfect.h5"
+  coral: "coral_health_final_model.h5"
+  pollution: "pollution_detection.pt"
+database:
+  path: "marine_monitoring.db"

@@ -59,14 +59,17 @@ coverage.xml
 # files
 README.md
 challenges.txt
-db_manager.py
-marine_monitoring.db
+1.txt
+app.py
+main.py
+app.py
+
+
 # folders
 
 data/
-notebooks/
 analysis/
 tests/
-models/
 runs/
 utils/
+database/
