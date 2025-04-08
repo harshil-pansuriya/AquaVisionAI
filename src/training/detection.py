@@ -3,12 +3,11 @@ from config.paths import MODELS_DIR
 
 model = YOLO('yolov8s.pt')
 
-
 results = model.train(
     data='config/detection.yaml',  
     epochs=40, 
     imgsz=640, 
-    device='cpu',                       # use device=0 for GPU
+    device='cpu',                       # use device=0 when using GPU
     batch=16, 
     workers=8,                         # Data loading threads
     patience=5, 

@@ -7,31 +7,26 @@ from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, r
 from sklearn.preprocessing import MultiLabelBinarizer
 
 def load_image(image_path):
-    """Load an image with error handling."""
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"Failed to load image: {image_path}")
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 def save_image(image, output_path):
-    """Save an image with error handling."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     cv2.imwrite(output_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
 
 def preprocess_tf(image, size=(224, 224)):
-    """Preprocess image for TensorFlow models."""
     img = cv2.resize(image, size)
     return img.astype(np.float32) / 255.0
 
 def load_model(model_path, is_yolo=False):
-    """Load a model with error handling."""
     try:
         return YOLO(model_path) if is_yolo else tf.keras.models.load_model(model_path, compile=False)
     except Exception as e:
         raise ValueError(f"Failed to load model {model_path}: {str(e)}")
 
 def parse_labels(label_path):
-    """Parse YOLO label file and return a tuple of class IDs."""
     if not os.path.exists(label_path) or os.path.getsize(label_path) == 0:
         return (-1,)
     with open(label_path, 'r') as f:
@@ -39,7 +34,6 @@ def parse_labels(label_path):
     return tuple(int(line[0]) for line in lines) if lines else (-1,)
 
 def predict_tf(model, paths, is_binary=False, batch_size=8):
-    """Predict using a TensorFlow model."""
     preds = []
     for i in range(0, len(paths), batch_size):
         batch = paths[i:i + batch_size]
@@ -52,7 +46,6 @@ def predict_tf(model, paths, is_binary=False, batch_size=8):
     return preds
 
 def predict_yolo(model, paths, batch_size=8):
-    """Predict using a YOLO model."""
     preds = []
     for i in range(0, len(paths), batch_size):
         batch = paths[i:i + batch_size]
@@ -63,7 +56,6 @@ def predict_yolo(model, paths, batch_size=8):
     return preds
 
 def compute_metrics(true_labels, pred_labels, classes):
-    """Compute evaluation metrics for multi-class or multi-label data."""
     true_labels = [lbl if isinstance(lbl, tuple) else (lbl,) for lbl in true_labels]
     pred_labels = [lbl if isinstance(lbl, tuple) else (lbl,) for lbl in pred_labels]
 

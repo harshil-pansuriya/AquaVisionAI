@@ -5,12 +5,11 @@ import json
 from config.paths import DB_PATH, PROCESSED_DIR, SPECIES_MODEL_PATH, CORAL_MODEL_PATH, POLLUTION_MODEL_PATH
 from src.utils import parse_labels, predict_tf, predict_yolo, compute_metrics, load_model
 
-# Constants
 CLASS_MAP = {0: "Mask", 1: "can", 2: "cellphone", 3: "electronics", 4: "gbottle", 5: "glove",
              6: "misc", 7: "net", 8: "pbag", 9: "pbottle", 10: "plastic", 11: "tire"}
 SPECIES_LIST = sorted(os.listdir(PROCESSED_DIR["sea_animals"]))
 CORAL_CLASSES = ["healthy_corals", "bleached_corals"]
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 
 # Database setup
 conn = sqlite3.connect(DB_PATH)
@@ -39,7 +38,6 @@ cursor.executescript('''
 ''')
 
 def populate_images():
-    """Populate the marine_images table with data from processed directories."""
     for dataset, base_dir in PROCESSED_DIR.items():
         for root, _, files in os.walk(base_dir):
             for file in files:
@@ -63,7 +61,6 @@ def populate_images():
                                        'VALUES (?, ?, ?, ?, ?, ?)', (file_path, dataset_name, split, species, coral, pollution))
 
 def evaluate_and_store(model_name, split, paths, true_labels, predict_fn, classes, is_yolo=False, model=None):
-    """Evaluate a model and store results in the database."""
     print(f"Evaluating {model_name} on {split} split with {len(paths)} samples...")
     if is_yolo:
         val_results = model.val(data="config/detection.yaml", imgsz=640, batch=BATCH_SIZE, verbose=False, split="test")
@@ -88,7 +85,6 @@ if __name__ == "__main__":
     conn.commit()
     print("Database population completed.")
 
-    # Species: Random 400 samples across all 23 classes
     all_species_images = []
     for species in SPECIES_LIST:
         species_dir = os.path.join(PROCESSED_DIR["sea_animals"], species)
@@ -97,20 +93,17 @@ if __name__ == "__main__":
     species_data = random.sample(all_species_images, min(400, len(all_species_images)))
     print(f"Sampled {len(species_data)} species images loaded.")
 
-    # Coral: Test split only
     cursor.execute("SELECT file_path, coral_health FROM marine_images WHERE source_dataset = 'coral_reef' AND split = 'Testing'")
     coral_rows = cursor.fetchall()
     coral_data = [(row[0], 0 if row[1] == "healthy" else 1) for row in coral_rows]
     print(f"Loaded {len(coral_data)} coral test images.")
 
-    # Pollution: Test split only
     cursor.execute("SELECT file_path FROM marine_images WHERE source_dataset = 'underwater_garbage' AND split = 'test'")
     pollution_rows = cursor.fetchall()
     pollution_data = [(row[0], parse_labels(row[0].replace("images", "labels").replace(".jpg", ".txt").replace(".png", ".txt")))
                       for row in pollution_rows]
     print(f"Loaded {len(pollution_data)} pollution test images.")
 
-    # Load models
     print("Loading models...")
     species_model = load_model(SPECIES_MODEL_PATH)
     print("Species model loaded.")
@@ -119,7 +112,6 @@ if __name__ == "__main__":
     pollution_model = load_model(POLLUTION_MODEL_PATH, is_yolo=True)
     print("Pollution model loaded.")
 
-    # Evaluate models
     for name, split, data, fn, classes, is_yolo, model in [
         ("marine_species", "random_400", species_data, lambda p, b: predict_tf(species_model, p, batch_size=b), SPECIES_LIST, False, species_model),
         ("coral_reef", "test", coral_data, lambda p, b: predict_tf(coral_model, p, True, batch_size=b), CORAL_CLASSES, False, coral_model),

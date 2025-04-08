@@ -1,4 +1,3 @@
-# src/main.py
 import cv2
 import numpy as np
 from config.paths import SPECIES_MODEL_PATH, CORAL_MODEL_PATH, POLLUTION_MODEL_PATH
@@ -10,10 +9,9 @@ class MarineMonitoringSystem:
         self.coral_model = load_model(CORAL_MODEL_PATH)
         self.pollution_model = load_model(POLLUTION_MODEL_PATH, is_yolo=True)
         
-        self.species_classes = ["Clams", "Corals", "Crabs", "Dolphin", "Eel", "Fish", "Jelly Fish", 
-                               "Lobster", "Nudibranchs", "Octopus", "Otter", "Penguin", "Puffers", 
-                               "Sea Rays", "Sea Urchins", "Seahorse", "Seal", "Sharks", "Shrimp", 
-                               "Squid", "Starfish", "Turtle_Tortoise", "Whale"]
+        self.species_classes = ["Clams", "Corals", "Crabs", "Dolphin", "Eel", "Fish", "Jelly Fish",  "Lobster", "Nudibranchs",
+                                "Octopus", "Otter", "Penguin", "Puffers", "Sea Rays", "Sea Urchins", "Seahorse", "Seal", "Sharks", 
+                                "Shrimp", "Squid", "Starfish", "Turtle_Tortoise", "Whale"]
         self.pollution_classes = ["Mask", "can", "cellphone", "electronics", "gbottle", "glove", 
                                  "misc", "net", "pbag", "pbottle", "plastic", "tire"]
 

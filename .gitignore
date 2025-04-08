@@ -57,19 +57,12 @@ coverage.xml
 *.cover
 
 # files
-README.md
 challenges.txt
 1.txt
-app.py
-main.py
-app.py
-
 
 # folders
 
 data/
-analysis/
 tests/
 runs/
-utils/
-database/
+test_images/

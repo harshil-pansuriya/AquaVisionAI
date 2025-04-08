@@ -1,4 +1,3 @@
-# src/models/species_id.py
 import os
 import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
@@ -14,21 +13,15 @@ num_classes = 23
 
 train_dataset = tf.keras.utils.image_dataset_from_directory(
     train_dir,
-    validation_split=0.2,
-    subset="training",
-    seed=42,
-    image_size=img_size,
-    batch_size=batch_size,
+    validation_split=0.2, subset="training", seed=42,
+    image_size=img_size,batch_size=batch_size,
     shuffle=True
 )
 
 val_dataset = tf.keras.utils.image_dataset_from_directory(
     train_dir,
-    validation_split=0.2,
-    subset="validation",
-    seed=42,
-    image_size=img_size,
-    batch_size=batch_size,
+    validation_split=0.2, subset="validation", seed=42,
+    image_size=img_size, batch_size=batch_size,
     shuffle=False
 )
 
@@ -57,11 +50,9 @@ x = Dropout(0.5)(x)
 predictions = Dense(num_classes, activation='softmax')(x)
 
 model = Model(inputs=base_model.input, outputs=predictions)
-
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005),
-    loss='sparse_categorical_crossentropy',
-    metrics=['accuracy']
+    loss='sparse_categorical_crossentropy', metrics=['accuracy']
 )
 
 early_stopping = EarlyStopping(monitor='val_accuracy', patience=3, restore_best_weights=True, mode='max')
